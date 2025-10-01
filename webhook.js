@@ -1,6 +1,6 @@
 export default {
   async fetch(req, env) {
-    if (req.method !== "POST" || new URL(req.url).pathname !== "/user") {
+    if (req.method !== "POST" || new URL(req.url).pathname !== "/claim") {
       return new Response("Not found", { status: 404 });
     }
 
@@ -52,22 +52,22 @@ export default {
 
     const jsonBody = JSON.parse(rawBody);
 
-    await fetch(
-      "https://api.twilio.com/2010-04-01/Accounts/ACe139570dea309483e6d1b2ce93cbd76e/Messages.json",
-      {
-        method: "POST",
-        headers: {
-          "Authorization": "Basic " + btoa("ACe139570dea309483e6d1b2ce93cbd76e:a373e6c5ee63154e559593f4ae3a38a5"),
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: new URLSearchParams({
-          To: "+541141755027",
-          From: "+14632505772",
-          Body: "New Username: " + jsonBody.request.username
-        })
-      }
-    );
+    console.log('Received body:');
+    console.log(JSON.stringify(jsonBody));
 
-    return new Response("OK", { status: 200 });
+    const response = {
+      "append_claims": [
+        {
+          "key": "group",
+          "value": "ADMIN"
+        }
+      ]
+    };
+
+
+    return new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
   }
 };
