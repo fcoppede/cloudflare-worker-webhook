@@ -50,6 +50,8 @@ export default {
       return new Response("Invalid signature", { status: 400 });
     }
 
+    const jsonBody = JSON.parse(rawBody);
+
     await fetch(
       "https://api.twilio.com/2010-04-01/Accounts/ACe139570dea309483e6d1b2ce93cbd76e/Messages.json",
       {
@@ -61,12 +63,11 @@ export default {
         body: new URLSearchParams({
           To: "+541141755027",
           From: "+14632505772",
-          Body: "Webhook received!"
+          Body: "New Username: " + jsonBody.request.username
         })
       }
     );
 
-    console.log(req.body);
     return new Response("OK", { status: 200 });
   }
 };
