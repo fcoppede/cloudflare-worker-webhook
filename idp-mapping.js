@@ -55,17 +55,7 @@ export default {
     console.log('Received body:');
     console.log(JSON.stringify(jsonBody));
 
-    const response = {
-      "append_claims": [
-        {
-          "key": "group",
-          "value": "ADMIN"
-        }
-      ]
-    };
-
-
-    return new Response(JSON.stringify(response), {
+    return new Response(JSON.stringify(jsonBody), {
       status: 200,
       headers: { "Content-Type": "application/json" }
     });
