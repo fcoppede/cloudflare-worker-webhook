@@ -52,10 +52,13 @@ export default {
 
     const jsonBody = JSON.parse(rawBody);
 
-    console.log('Received body:');
-    console.log(JSON.stringify(jsonBody));
+    let receivedObject = jsonBody.response;
+    console.log('Received object:');
+    console.log(JSON.stringify(receivedObject));
 
-    return new Response(JSON.stringify(jsonBody), {
+    receivedObject.addHumanUser.username = "HELLOWORLD";
+
+    return new Response(JSON.stringify(receivedObject), {
       status: 200,
       headers: { "Content-Type": "application/json" }
     });
