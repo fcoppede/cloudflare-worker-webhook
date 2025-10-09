@@ -52,13 +52,29 @@ export default {
 
     const jsonBody = JSON.parse(rawBody);
 
+    //Object received from Zitadel
     let receivedObject = jsonBody.response;
+    console.log('Received object:');
+    console.log(JSON.stringify(receivedObject));
+
+    //Map the IDP attributes:
     const IDPattributes = receivedObject.idpInformation.rawInformation;
-    console.log('IDP attributes:');
-    console.log(JSON.stringify(IDPattributes));
+    if (receivedObject.addHumanUser) {
+      receivedObject.addHumanUser.email = {
+        isVerified: IDPattributes.email_verified,
+        email: IDPattributes.email
+      };
+      receivedObject.addHumanUser.username = IDPattributes.sub.toString() + "_test";
+      receivedObject.addHumanUser.profile = {
+        givenName: IDPattributes.given_name,
+        familyName: IDPattributes.family_name,
+        nickName: IDPattributes.nickname,
+        displayName: IDPattributes.name,
+      }
+      console.log("Attributes mapped correctly");
+    }
 
-    receivedObject.addHumanUser?.username += IDPattributes.iat;
-
+    //Send the modified response back to Zitadel
     return new Response(JSON.stringify(receivedObject), {
       status: 200,
       headers: { "Content-Type": "application/json" }
