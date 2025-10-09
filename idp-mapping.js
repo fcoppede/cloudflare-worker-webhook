@@ -53,10 +53,11 @@ export default {
     const jsonBody = JSON.parse(rawBody);
 
     let receivedObject = jsonBody.response;
-    console.log('Received object:');
-    console.log(JSON.stringify(receivedObject));
+    const IDPattributes = receivedObject.idpInformation.rawInformation;
+    console.log('IDP attributes:');
+    console.log(JSON.stringify(IDPattributes));
 
-    receivedObject.addHumanUser.username = "HELLOWORLD";
+    receivedObject.addHumanUser?.username += IDPattributes.iat;
 
     return new Response(JSON.stringify(receivedObject), {
       status: 200,
