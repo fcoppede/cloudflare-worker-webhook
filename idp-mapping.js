@@ -57,9 +57,25 @@ export default {
     console.log('Received object:');
     console.log(JSON.stringify(receivedObject));
 
-    //Map the IDP attributes:
     const IDPattributes = receivedObject.idpInformation.rawInformation;
-    if (receivedObject.addHumanUser) {
+    const idpId = receivedObject.idpInformation.idpId;
+
+    //Map the IDP attributes:
+    if (idpId === "342199438967631842" && receivedObject.addHumanUser) {
+      receivedObject.addHumanUser.email = {
+        isVerified: true,
+        email: IDPattributes.attributes.Email[0]
+      };
+      receivedObject.addHumanUser.username = IDPattributes.attributes.UserName[0];
+      receivedObject.addHumanUser.profile = {
+        givenName: IDPattributes.attributes.FirstName[0],
+        familyName: IDPattributes.attributes.SurName[0],
+        nickName: IDPattributes.attributes.FullName[0],
+        displayName: IDPattributes.attributes.FullName[0],
+      }
+      receivedObject.addHumanUser.idpLinks[0].userName = IDPattributes.attributes.Email[0];
+      console.log("Attributes mapped correctly");
+    } else if (idpId === "337122579821140846" && receivedObject.addHumanUser) {
       receivedObject.addHumanUser.email = {
         isVerified: IDPattributes.email_verified,
         email: IDPattributes.email
@@ -74,6 +90,8 @@ export default {
       console.log("Attributes mapped correctly");
     }
 
+    console.log("Returned object:");
+    console.log(JSON.stringify(receivedObject));
     //Send the modified response back to Zitadel
     return new Response(JSON.stringify(receivedObject), {
       status: 200,
