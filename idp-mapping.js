@@ -1,101 +1,148 @@
 export default {
   async fetch(req, env) {
-    if (req.method !== "POST" || new URL(req.url).pathname !== "/") {
+    // --- Path validation ---
+    const url = new URL(req.url);
+    if (req.method !== "POST" || url.pathname !== "/") {
       return new Response("Not found", { status: 404 });
     }
 
     if (!env.SIGNING_KEY) {
+      console.error("[Init] Missing SIGNING_KEY in environment");
       return new Response("Missing signing key", { status: 500 });
     }
 
     const signatureHeader = req.headers.get("zitadel-signature");
     if (!signatureHeader) {
-      console.log("Missing Signature");
+      console.warn("[Verify] Missing signature header");
       return new Response("Missing signature", { status: 400 });
     }
 
+    // --- Parse and verify signature ---
     const rawBody = await req.text();
-
-    const elements = signatureHeader.split(",");
-    const timestamp = elements.find(e => e.startsWith("t="))?.split("=")[1];
-    const signature = elements.find(e => e.startsWith("v1="))?.split("=")[1];
-
-    if (!timestamp || !signature) {
-      console.log("Malformed signature header");
-      return new Response("Malformed signature header", { status: 400 });
-    }
-
-    const signedPayload = `${timestamp}.${rawBody}`;
-    const encoder = new TextEncoder();
-
-    const key = await crypto.subtle.importKey(
-      "raw",
-      encoder.encode(env.SIGNING_KEY),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-
-    const sigBuffer = await crypto.subtle.sign("HMAC", key, encoder.encode(signedPayload));
-
-    const hmac = Array.from(new Uint8Array(sigBuffer))
-      .map(b => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    if (hmac !== signature) {
-      console.log("Invalid Signature");
-      console.log("Signature received: ", signatureHeader);
-      console.log("Signing key: ", env.SIGNING_KEY);
-      console.log("Computed signature: ", hmac);
+    const isValid = await verifySignature(signatureHeader, rawBody, env.SIGNING_KEY);
+    if (!isValid) {
+      console.warn("[Verify] Invalid signature");
       return new Response("Invalid signature", { status: 400 });
     }
 
-    const jsonBody = JSON.parse(rawBody);
-
-    //Object received from Zitadel
-    let receivedObject = jsonBody.response;
-    console.log('Received object:');
-    console.log(JSON.stringify(receivedObject));
-
-    const IDPattributes = receivedObject.idpInformation.rawInformation;
-    const idpId = receivedObject.idpInformation.idpId;
-
-    //Map the IDP attributes:
-    if (idpId === "342199438967631842" && receivedObject.addHumanUser) {
-      receivedObject.addHumanUser.email = {
-        isVerified: true,
-        email: IDPattributes.attributes.Email[0]
-      };
-      receivedObject.addHumanUser.username = IDPattributes.attributes.UserName[0];
-      receivedObject.addHumanUser.profile = {
-        givenName: IDPattributes.attributes.FirstName[0],
-        familyName: IDPattributes.attributes.SurName[0],
-        nickName: IDPattributes.attributes.FullName[0],
-        displayName: IDPattributes.attributes.FullName[0],
-      }
-      receivedObject.addHumanUser.idpLinks[0].userName = IDPattributes.attributes.Email[0];
-      console.log("Attributes mapped correctly");
-    } else if (idpId === "337122579821140846" && receivedObject.addHumanUser) {
-      receivedObject.addHumanUser.email = {
-        isVerified: IDPattributes.email_verified,
-        email: IDPattributes.email
-      };
-      receivedObject.addHumanUser.username = IDPattributes.sub.toString() + "_test";
-      receivedObject.addHumanUser.profile = {
-        givenName: IDPattributes.given_name,
-        familyName: IDPattributes.family_name,
-        nickName: IDPattributes.nickname,
-        displayName: IDPattributes.name,
-      }
-      console.log("Attributes mapped correctly");
+    // --- Parse and process request ---
+    let jsonBody;
+    try {
+      jsonBody = JSON.parse(rawBody);
+    } catch {
+      console.error("[Parse] Invalid JSON body");
+      return new Response("Invalid JSON body", { status: 400 });
     }
 
-    console.log("Returned object:");
-    console.log(JSON.stringify(receivedObject));
-    //Send the modified response back to Zitadel
-    return new Response(JSON.stringify(receivedObject), {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    });
-  }
+    const receivedObject = jsonBody.response;
+    if (!receivedObject) {
+      console.error("[Parse] Missing response object");
+      return new Response("Missing response object", { status: 400 });
+    }
+
+    console.log("[Input] Received object:", JSON.stringify(receivedObject));
+
+    // --- Map IDP attributes if applicable ---
+    mapIdpAttributes(receivedObject);
+
+    console.log("[Output] Returned object:", JSON.stringify(receivedObject));
+
+    // --- Return the modified response ---
+    return jsonResponse(receivedObject);
+  },
 };
+
+// --- Helper Functions ---
+
+/**
+ * Verify HMAC signature from Zitadel
+ */
+async function verifySignature(signatureHeader, rawBody, signingKey) {
+  const elements = signatureHeader.split(",");
+  const timestamp = elements.find(e => e.startsWith("t="))?.split("=")[1];
+  const signature = elements.find(e => e.startsWith("v1="))?.split("=")[1];
+
+  if (!timestamp || !signature) {
+    console.warn("[Verify] Malformed signature header");
+    return false;
+  }
+
+  const signedPayload = `${timestamp}.${rawBody}`;
+  const encoder = new TextEncoder();
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(signingKey),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const sigBuffer = await crypto.subtle.sign("HMAC", key, encoder.encode(signedPayload));
+
+  const computedSignature = Array.from(new Uint8Array(sigBuffer))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  const isMatch = computedSignature === signature;
+  if (!isMatch) {
+    console.warn("[Verify] Signature mismatch");
+  }
+
+  return isMatch;
+}
+
+/**
+ * Map IDP attributes based on provider ID
+ */
+function mapIdpAttributes(receivedObject) {
+  const idpInfo = receivedObject.idpInformation;
+  if (!idpInfo || !idpInfo.rawInformation) return;
+
+  const idpAttributes = idpInfo.rawInformation;
+  const idpId = idpInfo.idpId;
+
+  if (idpId === "342199438967631842" && receivedObject.addHumanUser) {
+    // Example: SAML provider
+    const attrs = idpAttributes.attributes;
+    receivedObject.addHumanUser.email = {
+      isVerified: true,
+      email: attrs.Email?.[0],
+    };
+    receivedObject.addHumanUser.username = attrs.UserName?.[0];
+    receivedObject.addHumanUser.profile = {
+      givenName: attrs.FirstName?.[0],
+      familyName: attrs.SurName?.[0],
+      nickName: attrs.FullName?.[0],
+      displayName: attrs.FullName?.[0],
+    };
+    receivedObject.addHumanUser.idpLinks[0].userName = attrs.Email?.[0];
+    console.log("[Mapping] Attributes mapped for SAML provider");
+  }
+
+  else if (idpId === "337122579821140846" && receivedObject.addHumanUser) {
+    // Example: OIDC provider
+    receivedObject.addHumanUser.email = {
+      isVerified: idpAttributes.email_verified,
+      email: idpAttributes.email,
+    };
+    receivedObject.addHumanUser.username = `${idpAttributes.sub}_test`;
+    receivedObject.addHumanUser.profile = {
+      givenName: idpAttributes.given_name,
+      familyName: idpAttributes.family_name,
+      nickName: idpAttributes.nickname,
+      displayName: idpAttributes.name,
+    };
+    console.log("[Mapping] Attributes mapped for OIDC provider");
+  }
+}
+
+/**
+ * Helper for JSON responses
+ */
+function jsonResponse(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
