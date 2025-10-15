@@ -1,5 +1,5 @@
-name = "mapping"
-main = "./idp-mapping.js"
+name = "claims"
+main = "./custom-claims.js"
 compatibility_date = "2023-10-01"
 account_id = "c90a5323388a211e018b0c78e9b80335"
 workers_dev = true
