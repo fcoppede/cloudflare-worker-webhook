@@ -29,7 +29,7 @@ With this script, you can:
 
 ## Environment setup
 
-Before running the script, set the following environment variables in a `.env` file:
+Before running the script, create an `.env` file and add the following variables:
 
 | Variable | Description |
 |-----------|--------------|
