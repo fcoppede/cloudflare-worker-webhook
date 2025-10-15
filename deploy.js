@@ -1,17 +1,29 @@
 import { execSync } from "child_process";
 import dotenv from "dotenv";
 
-dotenv.config(); // loads .env into process.env
+dotenv.config();
 
-const secrets = ["SIGNING_KEY"]; // list of env vars to sync
+if (!process.env.CLOUDFLARE_API_TOKEN) {
+  console.error("❌ CLOUDFLARE_API_TOKEN is not set in your environment or .env file");
+  process.exit(1);
+}
+
+const execOptions = {
+  stdio: "inherit",
+  env: { ...process.env },
+};
+
+const secrets = ["SIGNING_KEY"];
+
 for (const key of secrets) {
   if (process.env[key]) {
     try {
+      console.log(`🔐 Syncing secret: ${key}`);
       execSync(
-        `echo ${process.env[key]} | npx wrangler secret put ${key}`,
-        { stdio: "inherit" }
+        `echo "${process.env[key]}" | npx wrangler secret put ${key}`,
+        execOptions
       );
-      console.log(`🔐 Secret ${key} synced`);
+      console.log(`✅ Secret ${key} synced successfully`);
     } catch (err) {
       console.error(`❌ Failed to sync secret ${key}`, err);
     }
@@ -19,8 +31,9 @@ for (const key of secrets) {
 }
 
 try {
-  execSync("npx wrangler deploy", { stdio: "inherit" });
-  console.log("🚀 Deployment complete!");
+  console.log("🚀 Deploying to Cloudflare Workers...");
+  execSync("npx wrangler deploy", execOptions);
+  console.log("✅ Deployment complete!");
 } catch (err) {
   console.error("❌ Deployment failed", err);
 }
