@@ -13,7 +13,7 @@ const execOptions = {
   env: { ...process.env },
 };
 
-const secrets = ["SIGNING_KEY"];
+const secrets = ["SIGNING_KEY", "SPLUNK_URL", "SPLUNK_TOKEN"];
 
 for (const key of secrets) {
   if (process.env[key]) {
