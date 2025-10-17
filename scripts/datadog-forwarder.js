@@ -8,8 +8,8 @@ export default {
         }
 
         // --- Validate env vars ---
-        const { SIGNING_KEY, SPLUNK_URL, SPLUNK_TOKEN } = env;
-        if (!SIGNING_KEY || !SPLUNK_URL || !SPLUNK_TOKEN) {
+        const { SIGNING_KEY, DD_URL, DD_API_KEY } = env;
+        if (!SIGNING_KEY || !DD_URL || !DD_API_KEY) {
             console.error("[Init] Missing environment variables");
             return new Response("Missing configuration", { status: 500 });
         }
@@ -42,12 +42,11 @@ export default {
 
         console.log("[Input] Received Zitadel event:", JSON.stringify(jsonBody));
 
-        // --- Forward to Splunk ---
+        // --- Forward to DD ---
         try {
-            const forwardRes = await sendToSplunk(jsonBody, SPLUNK_URL, SPLUNK_TOKEN);
-            console.log(`[Forward] Sent to Splunk: ${forwardRes.status}`);
+            await sendToDD(jsonBody, DD_URL, DD_API_KEY);
         } catch (err) {
-            console.error("[Forward] Failed to send to Splunk:", err);
+            console.error("[Forward] Failed to send to DD:", err);
             // Still return 200 to Zitadel — we don’t want retries to pile up
         }
 
@@ -82,9 +81,19 @@ async function verifySignature(signatureHeader, rawBody, signingKey) {
     return computedSignature === signature;
 }
 
-// --- Send data to Splunk via HEC ---
-async function sendToSplunk(data, url, token) {
-    const endpoint = `${url}/services/collector/event`;
+// --- Send data to DD via HEC ---
+async function sendToDD(data, url, api_key) {
+
+    const logItem = {
+      ddsource: "cloudflare-worker",
+      service: "zitadel-forwarder",
+      hostname: "cloudflare",
+      message: JSON.stringify(data),
+      // include any custom attributes
+      attributes: {}
+    };
+
+    const endpoint = `${url}/api/v2/logs`;
     console.log("[Forward] Sending to:", endpoint);
 
     let res;
@@ -92,10 +101,10 @@ async function sendToSplunk(data, url, token) {
         res = await fetch(endpoint, {
             method: "POST",
             headers: {
-                "Authorization": `Splunk ${token}`,
                 "Content-Type": "application/json",
+                "DD-API-KEY": api_key
             },
-            body: JSON.stringify({ event: data }),
+            body: JSON.stringify([logItem]),
         });
     } catch (err) {
         console.error("[Forward] Network error:", err);
@@ -104,12 +113,11 @@ async function sendToSplunk(data, url, token) {
 
     const text = await res.text(); // always read body for more info
     if (!res.ok) {
-        console.error(`[Forward] Splunk returned HTTP ${res.status}`);
-        console.error(`[Forward] Response body: ${text}`);
-        throw new Error(`Splunk returned ${res.status}`);
+        console.error(`[Forward] DD returned HTTP ${res.status}`);
+        throw new Error(`DD returned ${res.status}`);
     }
 
-    console.log("[Forward] Successfully sent to Splunk, response:", text);
+    console.log("[Forward] Successfully sent to DD");
     return text;
 }
 
