@@ -1,9 +1,48 @@
+// Cloudflare Worker: Lazy User Migration for Zitadel
+// ----------------------------------------------------
+// This worker exposes two Zitadel action endpoints:
+//
+//   POST /action/list-users
+//   POST /action/set-session
+//
+// It validates Zitadel’s signature using HMAC-SHA256 and environment keys,
+// then uses Zitadel API to create and update migrated users.
+//
+// Required environment variables:
+//   - ZITADEL_DOMAIN
+//   - ACCESS_TOKEN
+//   - ZITADEL_ORG_ID
+//   - SETSESSION_SIGNING_KEY
+//   - LISTUSERS_SIGNING_KEY
+//
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
 
     if (req.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
+    }
+
+    // --- Validate environment variables ---
+    const {
+      ZITADEL_DOMAIN,
+      ACCESS_TOKEN,
+      ZITADEL_ORG_ID,
+      SETSESSION_SIGNING_KEY,
+      LISTUSERS_SIGNING_KEY,
+    } = env;
+
+    const missing = [];
+    if (!ZITADEL_DOMAIN) missing.push("ZITADEL_DOMAIN");
+    if (!ACCESS_TOKEN) missing.push("ACCESS_TOKEN");
+    if (!ZITADEL_ORG_ID) missing.push("ZITADEL_ORG_ID");
+    if (!SETSESSION_SIGNING_KEY) missing.push("SETSESSION_SIGNING_KEY");
+    if (!LISTUSERS_SIGNING_KEY) missing.push("LISTUSERS_SIGNING_KEY");
+
+    if (missing.length > 0) {
+      console.error("[Init] Missing environment variables:", missing.join(", "));
+      return new Response("Missing configuration", { status: 500 });
     }
 
     // --- Route dispatch ---
@@ -54,7 +93,6 @@ async function verifySignature(signatureHeader, rawBody, signingKey) {
   );
 
   const sigBuffer = await crypto.subtle.sign("HMAC", key, encoder.encode(signedPayload));
-
   const computedSignature = Array.from(new Uint8Array(sigBuffer))
     .map(b => b.toString(16).padStart(2, "0"))
     .join("");
@@ -85,7 +123,7 @@ function generateRandomPassword() {
 
 // --- Mock Legacy DB ---
 const LEGACY_DB = {
-  "legacy-user@gmail.com": {
+  "legacy-user": {
     userId: "db-163840776835432346",
     username: "legacy-user",
     givenName: "Legacy",
@@ -100,13 +138,15 @@ const LEGACY_DB = {
 // --- Handlers ---
 
 async function handleListUsers(req, env) {
+  const { ZITADEL_DOMAIN, ACCESS_TOKEN, ZITADEL_ORG_ID, LISTUSERS_SIGNING_KEY } = env;
+
   try {
     const signatureHeader = req.headers.get("zitadel-signature");
     if (!signatureHeader) return new Response("Missing signature", { status: 400 });
 
     const { rawBody, jsonBody } = await readJsonBody(req);
 
-    const isValid = await verifySignature(signatureHeader, rawBody, env.LISTUSERS_SIGNING_KEY);
+    const isValid = await verifySignature(signatureHeader, rawBody, LISTUSERS_SIGNING_KEY);
     if (!isValid) return new Response("Invalid signature", { status: 403 });
 
     const body = jsonBody;
@@ -132,15 +172,14 @@ async function handleListUsers(req, env) {
 
     const legacy = LEGACY_DB[loginName];
 
-    // Create user in Zitadel
-    const createResp = await fetch(`https://${env.ZITADEL_DOMAIN}/v2/users/new`, {
+    const createResp = await fetch(`https://${ZITADEL_DOMAIN}/v2/users/new`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${env.ACCESS_TOKEN}`,
+        "Authorization": `Bearer ${ACCESS_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        organizationId: env.ZITADEL_ORG_ID,
+        organizationId: ZITADEL_ORG_ID,
         userId: legacy.userId,
         username: legacy.username,
         human: {
@@ -159,12 +198,13 @@ async function handleListUsers(req, env) {
 
     const created = await createResp.json();
 
-    const userSearch = await fetch(`https://${env.ZITADEL_DOMAIN}/v2/users/${created.id}`, {
+    const userSearch = await fetch(`https://${ZITADEL_DOMAIN}/v2/users/${created.id}`, {
       headers: {
-        "Authorization": `Bearer ${env.ACCESS_TOKEN}`,
+        "Authorization": `Bearer ${ACCESS_TOKEN}`,
         "Content-Type": "application/json",
       },
     });
+
     const userData = await userSearch.json();
     const u = userData.user || {};
 
@@ -189,38 +229,44 @@ async function handleListUsers(req, env) {
 }
 
 async function handleSetSession(req, env) {
+  const { ZITADEL_DOMAIN, ACCESS_TOKEN, SETSESSION_SIGNING_KEY } = env;
+
   try {
     const signatureHeader = req.headers.get("zitadel-signature");
     if (!signatureHeader) return new Response("Missing signature", { status: 400 });
 
     const { rawBody, jsonBody } = await readJsonBody(req);
 
-    const isValid = await verifySignature(signatureHeader, rawBody, env.SETSESSION_SIGNING_KEY);
+    const isValid = await verifySignature(signatureHeader, rawBody, SETSESSION_SIGNING_KEY);
     if (!isValid) return new Response("Invalid signature", { status: 403 });
 
     const { request: reqBody, response } = jsonBody;
     const pw = reqBody?.checks?.password?.password;
     const sessionId = reqBody?.sessionId;
     const sessionToken = reqBody?.sessionToken;
-    if (!pw) return jsonResponse(response || {});
+    if (!pw) {
+      console.log("No password received.");
+      return jsonResponse(response || {});
+    }
 
     const sessionRes = await fetch(
-      `https://${env.ZITADEL_DOMAIN}/v2/sessions/${sessionId}?sessionToken=${encodeURIComponent(sessionToken)}`,
+      `https://${ZITADEL_DOMAIN}/v2/sessions/${sessionId}?sessionToken=${encodeURIComponent(sessionToken)}`,
       {
         headers: {
-          "Authorization": `Bearer ${env.ACCESS_TOKEN}`,
+          "Authorization": `Bearer ${ACCESS_TOKEN}`,
           "Content-Type": "application/json",
         },
       }
     );
+
     const search = await sessionRes.json();
     const userId = search?.session?.factors?.user?.id;
     const legacyLoginName = search?.session?.factors?.user?.loginName;
 
-    const metaRes = await fetch(`https://${env.ZITADEL_DOMAIN}/v2/users/${userId}/metadata/search`, {
+    const metaRes = await fetch(`https://${ZITADEL_DOMAIN}/v2/users/${userId}/metadata/search`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${env.ACCESS_TOKEN}`,
+        "Authorization": `Bearer ${ACCESS_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -230,9 +276,7 @@ async function handleSetSession(req, env) {
 
     const metaData = await metaRes.json();
     const metadata = metaData.metadata || [];
-    const migratedValue = metadata.length
-      ? atob(metadata[0].value)
-      : null;
+    const migratedValue = metadata.length ? atob(metadata[0].value) : null;
 
     if (migratedValue === "true" || metadata.length === 0) {
       console.log("[SetSession] Skipping, already migrated or no metadata");
@@ -241,6 +285,10 @@ async function handleSetSession(req, env) {
 
     const legacy = LEGACY_DB[legacyLoginName];
     if (!legacy || pw !== legacy.password) {
+      console.log("Wrong username or password. Please try again.");
+      console.log("legacyLoginName", legacyLoginName);
+      console.log("legacy:", JSON.stringify(legacy));
+      console.log("pw:", pw);
       return jsonResponse({
         forwardedStatusCode: 400,
         forwardedErrorMessage: "Wrong username or password. Please try again.",
@@ -248,10 +296,10 @@ async function handleSetSession(req, env) {
     }
 
     // Set user password
-    await fetch(`https://${env.ZITADEL_DOMAIN}/v2/users/${userId}`, {
+    await fetch(`https://${ZITADEL_DOMAIN}/v2/users/${userId}`, {
       method: "PATCH",
       headers: {
-        "Authorization": `Bearer ${env.ACCESS_TOKEN}`,
+        "Authorization": `Bearer ${ACCESS_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -260,10 +308,10 @@ async function handleSetSession(req, env) {
     });
 
     // Update metadata
-    await fetch(`https://${env.ZITADEL_DOMAIN}/v2/users/${userId}/metadata`, {
+    await fetch(`https://${ZITADEL_DOMAIN}/v2/users/${userId}/metadata`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${env.ACCESS_TOKEN}`,
+        "Authorization": `Bearer ${ACCESS_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
