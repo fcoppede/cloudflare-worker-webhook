@@ -1,1 +1,1 @@
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/fcoppede/cloudflare-worker-webhook/tree/main/Actions%20V2%20%2B%20Cloudflare%20Workers/scripts/custom-claims)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/fcoppede/cloudflare-worker-webhook/tree/main/Actions%20V2%20to%20Cloudflare%20Workers/scripts/custom-claims)
