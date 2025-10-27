@@ -13,7 +13,7 @@ const execOptions = {
   env: { ...process.env },
 };
 
-const secrets = ["ZITADEL_DOMAIN", "ACCESS_TOKEN", "ZITADEL_ORG_ID", "SETSESSION_SIGNING_KEY", "LISTUSERS_SIGNING_KEY"];
+const secrets = ["SIGNING_KEY"];
 
 for (const key of secrets) {
   if (process.env[key]) {
