@@ -1,5 +1,5 @@
-name = "block"
-main = "./block-login-flow.js"
+name = "saml-idp"
+main = "./saml-idp.js"
 compatibility_date = "2025-09-15"
 workers_dev = true
 [observability.logs]
